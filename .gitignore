@@ -1,0 +1,21 @@
+# Visual Studio
+czyd3d12/.vs/
+*.suo
+*.user
+*.vcxproj.user
+*.pch
+*.ipch
+*.db
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+Win32/
+
+# Compiled binary files
+*.exe
+*.dll
+*.so
+*.obj
+*.lib
