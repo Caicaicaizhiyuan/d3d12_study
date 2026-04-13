@@ -47,14 +47,14 @@ struct Vertex
 
 // Stores the resources needed for the CPU to build the command lists
 // for a frame.  
-struct Resource
+struct FrameResources
 {
 public:
 
-    Resource(ID3D12Device* device, UINT passCount, UINT objectCount, UINT materialCount, UINT waveVertCount);
-    Resource(const Resource& rhs) = delete;
-    Resource& operator=(const Resource& rhs) = delete;
-    ~Resource();
+    FrameResources(ID3D12Device* device, UINT passCount, UINT objectCount, UINT materialCount, UINT waveVertCount);
+    FrameResources(const FrameResources& rhs) = delete;
+    FrameResources& operator=(const FrameResources& rhs) = delete;
+    ~FrameResources();
 
     // We cannot reset the allocator until the GPU is done processing the commands.
     // So each frame needs their own allocator.

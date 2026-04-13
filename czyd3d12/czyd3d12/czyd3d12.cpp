@@ -13,19 +13,20 @@
 #include "../../Common/UploadBuffer.h"
 #include "shape.h"
 #include "recsource.h"
+//#include "FrameResource.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
 
 
-class BoxApp : public D3DApp
+class CzyApp : public D3DApp
 {
 public:
-    BoxApp(HINSTANCE hInstance);
-    BoxApp(const BoxApp& rhs) = delete;
-    BoxApp& operator=(const BoxApp& rhs) = delete;
-    ~BoxApp();
+    CzyApp(HINSTANCE hInstance);
+    CzyApp(const CzyApp& rhs) = delete;
+    CzyApp& operator=(const CzyApp& rhs) = delete;
+    ~CzyApp();
 
     virtual bool Initialize()override;
 
@@ -38,15 +39,25 @@ private:
     virtual void OnMouseUp(WPARAM btnState, int x, int y)override;
     virtual void OnMouseMove(WPARAM btnState, int x, int y)override;
 
+	void UpdateCamera(const GameTimer& gt);
+    void UpdataObjectCB(const GameTimer& gt);
+
+    void UpdateMainPassCB(const GameTimer& gt);
+
+
     void BuildDescriptorHeaps();
     void BuildConstantBuffers();
     void BuildRootSignature();
     void BuildShadersAndInputLayout();
     void BuildBoxGeometry();
     void BuildPSO();
-    void DrawInstance(ID3D12GraphicsCommandList *cmdlist, const std::vector<RenderItem*>& rItems,Resource* nowResource,ComPtr<ID3D12DescriptorHeap> &msrvDseHeap);
+    void DrawInstance(ID3D12GraphicsCommandList *cmdlist, const std::vector<RenderItem*>& rItems,FrameResources* nowResource,ComPtr<ID3D12DescriptorHeap> &msrvDseHeap);
 
 private:
+	std::vector<std::unique_ptr<FrameResources>> mFrameResources;
+
+	FrameResources* mCurrFrameResource = nullptr;
+	int mCurrFrameResourceIndex = 0;
 
     ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
     ComPtr<ID3D12DescriptorHeap> mCbvHeap = nullptr;
@@ -70,6 +81,10 @@ private:
     XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
     XMFLOAT4X4 mView = MathHelper::Identity4x4();
     XMFLOAT4X4 mProj = MathHelper::Identity4x4();
+    XMFLOAT3 mEyePos = { 0.0f, 0.0f, 0.0f };
+
+	PassConstants mMainPassCB;
+
 
     float mTheta = 1.5f * XM_PI;
     float mPhi = XM_PIDIV4;
@@ -88,7 +103,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 
     try
     {
-        BoxApp theApp(hInstance);
+        CzyApp theApp(hInstance);
         if (!theApp.Initialize())
             return 0;
 
@@ -101,16 +116,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
     }
 }
 
-BoxApp::BoxApp(HINSTANCE hInstance)
+CzyApp::CzyApp(HINSTANCE hInstance)
     : D3DApp(hInstance)
 {
 }
 
-BoxApp::~BoxApp()
+CzyApp::~CzyApp()
 {
 }
 
-bool BoxApp::Initialize()
+bool CzyApp::Initialize()
 {
     if (!D3DApp::Initialize())
         return false;
@@ -135,7 +150,7 @@ bool BoxApp::Initialize()
     return true;
 }
 
-void BoxApp::OnResize()
+void CzyApp::OnResize()
 {
     D3DApp::OnResize();
 
@@ -144,7 +159,7 @@ void BoxApp::OnResize()
     XMStoreFloat4x4(&mProj, P);
 }
 
-void BoxApp::Update(const GameTimer& gt)
+void CzyApp::Update(const GameTimer& gt)
 {
     // Convert Spherical to Cartesian coordinates.
     float x = mRadius * sinf(mPhi) * cosf(mTheta);
@@ -169,7 +184,69 @@ void BoxApp::Update(const GameTimer& gt)
     mObjectCB->CopyData(0, objConstants);
 }
 
-void BoxApp::Draw(const GameTimer& gt)
+void CzyApp::UpdateCamera(const GameTimer& gt)
+{
+    // Convert Spherical to Cartesian coordinates.
+    float x = mRadius * sinf(mPhi) * cosf(mTheta);
+    float z = mRadius * sinf(mPhi) * sinf(mTheta);
+    float y = mRadius * cosf(mPhi);
+
+    // Build the view matrix.
+    XMVECTOR pos = XMVectorSet(x, y, z, 1.0f);
+    XMVECTOR target = XMVectorZero();
+    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+    XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+    XMStoreFloat4x4(&mView, view);
+    // Update the constant buffer with the latest worldViewProj matrix.
+
+}
+
+void CzyApp::UpdataObjectCB(const GameTimer& gt) {
+    ObjectConstants objConstants;
+	XMMATRIX world = XMLoadFloat4x4(&mWorld);
+	XMMATRIX view = XMLoadFloat4x4(&MathHelper::Identity4x4());
+    XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
+	XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(view));
+    mObjectCB->CopyData(0, objConstants);
+}
+
+void CzyApp::UpdateMainPassCB(const GameTimer& gt)
+{
+    XMMATRIX view = XMLoadFloat4x4(&mView);
+    XMMATRIX proj = XMLoadFloat4x4(&mProj);
+
+    XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+    XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+    XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+
+    XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
+    XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
+    XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    mMainPassCB.EyePosW = mEyePos;
+    mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
+    mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
+    mMainPassCB.NearZ = 1.0f;
+    mMainPassCB.FarZ = 1000.0f;
+    mMainPassCB.TotalTime = gt.TotalTime();
+    mMainPassCB.DeltaTime = gt.DeltaTime();
+    mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+    mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[0].Strength = { 0.6f, 0.6f, 0.6f };
+    mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[1].Strength = { 0.3f, 0.3f, 0.3f };
+    mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+    mMainPassCB.Lights[2].Strength = { 0.15f, 0.15f, 0.15f };
+
+    auto currPassCB = mCurrFrameResource->PassCB.get();
+    currPassCB->CopyData(0, mMainPassCB);
+}
+
+void CzyApp::Draw(const GameTimer& gt)
 {
     // Reuse the memory associated with command recording.
     // We can only reset when the associated command lists have finished execution on the GPU.
@@ -234,7 +311,7 @@ void BoxApp::Draw(const GameTimer& gt)
     FlushCommandQueue();
 }
 
-void BoxApp::OnMouseDown(WPARAM btnState, int x, int y)
+void CzyApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
     mLastMousePos.x = x;
     mLastMousePos.y = y;
@@ -242,12 +319,12 @@ void BoxApp::OnMouseDown(WPARAM btnState, int x, int y)
     SetCapture(mhMainWnd);
 }
 
-void BoxApp::OnMouseUp(WPARAM btnState, int x, int y)
+void CzyApp::OnMouseUp(WPARAM btnState, int x, int y)
 {
     ReleaseCapture();
 }
 
-void BoxApp::OnMouseMove(WPARAM btnState, int x, int y)
+void CzyApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
     if ((btnState & MK_LBUTTON) != 0)
     {
@@ -279,7 +356,7 @@ void BoxApp::OnMouseMove(WPARAM btnState, int x, int y)
     mLastMousePos.y = y;
 }
 
-void BoxApp::BuildDescriptorHeaps()
+void CzyApp::BuildDescriptorHeaps()
 {
     D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc;
     cbvHeapDesc.NumDescriptors = 1;
@@ -290,7 +367,7 @@ void BoxApp::BuildDescriptorHeaps()
         IID_PPV_ARGS(&mCbvHeap)));
 }
 
-void BoxApp::BuildConstantBuffers()
+void CzyApp::BuildConstantBuffers()
 {
     mObjectCB = std::make_unique<UploadBuffer<ObjectConstants>>(md3dDevice.Get(), 1, true);
 
@@ -310,7 +387,7 @@ void BoxApp::BuildConstantBuffers()
         mCbvHeap->GetCPUDescriptorHandleForHeapStart());
 }
 
-void BoxApp::BuildRootSignature()
+void CzyApp::BuildRootSignature()
 {
     // Shader programs typically require resources as input (constant buffers,
     // textures, samplers).  The root signature defines the resources the shader
@@ -349,7 +426,7 @@ void BoxApp::BuildRootSignature()
         IID_PPV_ARGS(&mRootSignature)));
 }
 
-void BoxApp::BuildShadersAndInputLayout()
+void CzyApp::BuildShadersAndInputLayout()
 {
     HRESULT hr = S_OK;
 
@@ -364,7 +441,7 @@ void BoxApp::BuildShadersAndInputLayout()
     };
 }
 
-void BoxApp::BuildBoxGeometry()
+void CzyApp::BuildBoxGeometry()
 {
     GeoCreator creator;
     GeoCreator::MeshData mesh=creator.createflower(1.0f,1.0f,1.0f,10,10,300);
@@ -397,7 +474,7 @@ void BoxApp::BuildBoxGeometry()
 
 }
 
-void BoxApp::BuildPSO()
+void CzyApp::BuildPSO()
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
     ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -426,7 +503,7 @@ void BoxApp::BuildPSO()
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSO)));
 }
 
-void BoxApp::DrawInstance(ID3D12GraphicsCommandList* cmdlist,const std::vector<RenderItem*>& rItems, Resource* nowResource, ComPtr<ID3D12DescriptorHeap>& msrvDseHeap)
+void CzyApp::DrawInstance(ID3D12GraphicsCommandList* cmdlist,const std::vector<RenderItem*>& rItems, FrameResources* nowResource, ComPtr<ID3D12DescriptorHeap>& msrvDseHeap)
 {
     UINT objCBBytesize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
     UINT matCBConstant = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
